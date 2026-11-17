@@ -1,22 +1,21 @@
 # Jellyfin Auto Organizer
 
-A Jellyfin plugin for automatically filing completed movie and TV downloads. Designed for Jellyfin on a Synology NAS, including Container Manager installations. It uses Jellyfin's plugin/configuration/scheduled-task interfaces from the [official template](https://github.com/jellyfin/jellyfin-plugin-template); it runs inside Jellyfin, with no separate organizer service or metadata account.
+An open-source Jellyfin plugin for automatically organizing completed movies and series. Designed for Jellyfin on a Synology NAS, including Container Manager installations. It uses Jellyfin's plugin/configuration/scheduled-task interfaces from the [official template](https://github.com/jellyfin/jellyfin-plugin-template); it runs inside Jellyfin, with no separate organizer service or metadata account. The plugin's source is available under GPL-3.0.
 
 This build targets **Jellyfin 10.11.5 / .NET 9**. Check your server version under Dashboard before installing. The DLLs are managed AnyCPU and have no native dependencies. They do not require a separate .NET installation on the NAS; Jellyfin supplies the runtime. Compatibility has been checked by compiling against Jellyfin 10.11.5; a live Synology/Jellyfin installation has not been tested here.
 
 ## What it does
 
-Your incoming folder can contain loose media files or nested torrent release folders:
+Your incoming folder can contain loose media files or nested torrent-style folders, including open movies and series distributed through torrents. These examples use Blender's open-movie projects [Big Buck Bunny](https://peach.blender.org/about/) and [Caminandes](https://www.caminandes.com/). The Caminandes shorts are grouped into an illustrative season to demonstrate series naming; the episode labels are examples, not an official TV season.
 
 ```text
 incoming/
-├── Succession (2018) Season 1-4 S01-S04 (1080p Mixed x265 HEVC 10bit EAC3 5.1 Silence)/
+├── Caminandes (2013) Season 1 S01 (1080p x265)/
 │   ├── Season 1/
-│   │   ├── Succession.S01E01.1080p.WEB-DL.x265.mkv
-│   │   └── Succession.S01E01.1080p.WEB-DL.x265.en.srt
-│   └── Season 4/
-│       └── S04E10.mkv
-└── Dune.Part.Two.2024.1080p.BluRay.x265-GROUP.mkv
+│   │   ├── Caminandes.S01E01.1080p.x265.mkv
+│   │   └── Caminandes.S01E01.1080p.x265.en.srt
+│   └── S01E02.mkv
+└── Big.Buck.Bunny.2008.1080p.x265.mkv
 ```
 
 The result is:
@@ -24,15 +23,14 @@ The result is:
 ```text
 library/
 ├── Shows/
-│   └── Succession/
-│       ├── Season 01/
-│       │   ├── Succession - S01E01.mkv
-│       │   └── Succession - S01E01.en.srt
-│       └── Season 04/
-│           └── Succession - S04E10.mkv
+│   └── Caminandes/
+│       └── Season 01/
+│           ├── Caminandes - S01E01.mkv
+│           ├── Caminandes - S01E01.en.srt
+│           └── Caminandes - S01E02.mkv
 └── Movies/
-    └── Dune Part Two (2024)/
-        └── Dune Part Two (2024).mkv
+    └── Big Buck Bunny (2008)/
+        └── Big Buck Bunny (2008).mkv
 ```
 
 The structure follows Jellyfin's [TV](https://jellyfin.org/docs/general/server/media/shows/) and [movie](https://jellyfin.org/docs/general/server/media/movies/) naming guidance. Optionally include series years to distinguish remakes. Season 00 is supported for numbered specials.
@@ -131,7 +129,7 @@ pwsh -File scripts/package.ps1 -JellyfinVersion 10.11.5
 
 That parameter changes the Jellyfin NuGet references. A different Jellyfin major/minor release may also require code or target-framework changes. Do not assume compatibility from a successful DLL copy.
 
-Tests cover torrent release parsing (including the Succession season pack), movies, numeric titles, subtitle naming, copy/move, repeat imports after restart, existing-file conflicts, incomplete files, completion markers, stability windows, cancellation, path overlap, and corrupt state. Two symlink tests run on Unix and are explicitly skipped on Windows, where creating symlinks requires additional privileges. No NAS is required to run the tests.
+Tests cover torrent release parsing (including multi-season packs), movies, numeric titles, subtitle naming, copy/move, repeat imports after restart, existing-file conflicts, incomplete files, completion markers, stability windows, cancellation, path overlap, and corrupt state. Two symlink tests run on Unix and are explicitly skipped on Windows, where creating symlinks requires additional privileges. No NAS is required to run the tests.
 
 Licensed under GPL-3.0, consistent with the Jellyfin plugin template. See [LICENSE](LICENSE).
 
