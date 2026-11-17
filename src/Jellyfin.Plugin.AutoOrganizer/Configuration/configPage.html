@@ -3,54 +3,239 @@
 <head><meta charset="utf-8"><title>Auto Organizer</title></head>
 <body>
 <div id="AutoOrganizerPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
-    <div data-role="content"><div class="content-primary">
-        <h2>Auto Organizer</h2>
-        <p>Import movie and TV downloads into Movies and Shows folders. Review previews in Dashboard → Logs before turning preview off.</p>
-        <form id="AutoOrganizerForm">
-            <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" id="Enabled" type="checkbox"><span>Enable folder monitoring</span></label></div>
-            <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" id="DryRun" type="checkbox"><span>Preview only (leave enabled for first setup)</span></label></div>
-            <div class="inputContainer"><label class="inputLabel" for="IncomingPath">Incoming folder</label><input is="emby-input" id="IncomingPath" placeholder="/downloads/completed" required><div class="fieldDescription">Absolute path inside the Jellyfin container. Use the torrent client's completed-download folder.</div></div>
-            <div class="inputContainer"><label class="inputLabel" for="LibraryPath">Library root</label><input is="emby-input" id="LibraryPath" placeholder="/media" required><div class="fieldDescription">Creates /media/Shows and /media/Movies. Must be separate from incoming.</div></div>
-            <div class="selectContainer"><label class="selectLabel" for="Mode">Import mode</label><select is="emby-select" id="Mode"><option value="Copy">Copy — keep downloads for seeding</option><option value="Move">Move — remove source files after import</option></select><div class="fieldDescription">Copy uses additional disk space. Move does not remove unrelated files or folders.</div></div>
-            <div class="inputContainer"><label class="inputLabel" for="StableSeconds">Wait for unchanged files (seconds)</label><input is="emby-input" id="StableSeconds" type="number" min="1" max="86400" required><div class="fieldDescription">Default 300 seconds, measured across polls. Stability alone cannot prove a paused torrent is complete.</div></div>
-            <div class="inputContainer"><label class="inputLabel" for="CompletionMarker">Optional completion marker filename</label><input is="emby-input" id="CompletionMarker" placeholder=".completed"><div class="fieldDescription">If set, a top-level download folder must contain this file. Have your downloader create it only after completion. Loose incoming files are skipped in this mode.</div></div>
-            <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" id="IncludeSeriesYear" type="checkbox"><span>Include year in series folder names when available</span></label></div>
-            <p>Runs every minute by default. Change the interval or run manually in Dashboard → Scheduled Tasks → Auto Organizer. Unknown names and existing destinations are left for review. Enable real-time monitoring on your Movies and Shows libraries, or schedule library scans.</p>
-            <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
-        </form>
-    </div></div>
-    <script>
-    (function () {
-        'use strict';
-        var id = '684d73d5-e50e-4e59-b643-d9d288531cce';
-        var page = document.querySelector('#AutoOrganizerPage');
-        var bools = ['Enabled', 'DryRun', 'IncludeSeriesYear'];
-        var strings = ['IncomingPath', 'LibraryPath', 'CompletionMarker'];
-        var field = function (name) { return page.querySelector('#' + name); };
-        function fail(error) { Dashboard.alert(error.message || 'Could not load or save settings.'); }
-        page.addEventListener('pageshow', function () {
-            Dashboard.showLoadingMsg();
-            ApiClient.getPluginConfiguration(id).then(function (config) {
-                bools.forEach(function (name) { field(name).checked = config[name]; });
-                strings.forEach(function (name) { field(name).value = config[name] || ''; });
-                field('StableSeconds').value = config.StableSeconds;
-                field('Mode').value = config.Mode === 1 ? 'Move' : (config.Mode === 0 ? 'Copy' : config.Mode);
-            }).catch(fail).finally(function () { Dashboard.hideLoadingMsg(); });
+<div data-role="content"><div class="content-primary">
+<h2>Auto Organizer</h2>
+<p>Choose your completed-download folder and existing Jellyfin libraries. These settings use folders visible inside the Jellyfin container on your Synology NAS.</p>
+<form id="AutoOrganizerForm">
+<div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input is="emby-checkbox" id="Enabled" type="checkbox"><span>Enable folder monitoring</span></label><div class="fieldDescription">Allows the “Organize incoming downloads” task to process downloads. It runs every minute by default. Change the interval under Dashboard → Scheduled Tasks → Auto Organizer.</div></div>
+<div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input is="emby-checkbox" id="DryRun" type="checkbox"><span>Preview only</span></label><div class="fieldDescription">Records proposed destinations in Dashboard → Logs as “AutoOrganizer Preview”, without creating library files or removing downloads. Leave this enabled until the results look correct.</div></div>
+
+<h3>Incoming downloads</h3>
+<div class="inputContainer">
+<label class="inputLabel" for="IncomingPath">Completed-download folder</label>
+<input is="emby-input" id="IncomingPath" placeholder="/downloads/completed" list="IncomingSuggestions" required aria-describedby="IncomingHelp">
+<datalist id="IncomingSuggestions"></datalist>
+<button is="emby-button" type="button" id="BrowseIncomingPath" class="raised"><span>Browse folders…</span></button>
+<div id="IncomingHelp" class="fieldDescription">Choose the folder your torrent client uses for finished downloads. Browse shows folders on the Jellyfin server, not your computer. On Synology, open Container Manager → your Jellyfin container → Volume settings. Find the completed-downloads mapping and use its container-side path, for example /downloads/completed. File Station shows the host-side folder, such as /volume1/downloads/completed; that path usually differs. If the folder is missing from Browse, add its bind mount and grant Jellyfin read access in DSM. Move mode also needs permission to delete source files.</div>
+</div>
+
+<h3>Library destinations</h3>
+<p>These dropdowns list folders already configured in Dashboard → Libraries. Choose one destination per media type. If a library has several folders, each appears separately. Selecting a folder here does not change Jellyfin's library settings.</p>
+<div id="LibraryStatus" class="fieldDescription" role="status" aria-live="polite"></div>
+<div class="selectContainer"><label class="selectLabel" for="ShowsLibrary">Existing Shows library</label><select is="emby-select" id="ShowsLibrary"><option value="">Use shared root or enter a custom folder below</option></select></div>
+<div class="inputContainer">
+<label class="inputLabel" for="ShowsPath">Shows destination folder (optional override)</label>
+<input is="emby-input" id="ShowsPath" placeholder="/media/Shows" aria-describedby="ShowsHelp">
+<button is="emby-button" type="button" id="BrowseShowsPath" class="raised"><span>Browse folders…</span></button>
+<div id="ShowsHelp" class="fieldDescription">Choosing a Shows library fills its actual folder here, for example /media/TV. Episodes go directly inside it: /media/TV/Series Name/Season 01. Leave blank to use Shows inside the shared root. If you browse to a custom folder, add it to a Shows library under Dashboard → Libraries. Grant the Jellyfin container user write access through DSM shared-folder permissions.</div>
+</div>
+<div class="selectContainer"><label class="selectLabel" for="MoviesLibrary">Existing Movies library</label><select is="emby-select" id="MoviesLibrary"><option value="">Use shared root or enter a custom folder below</option></select></div>
+<div class="inputContainer">
+<label class="inputLabel" for="MoviesPath">Movies destination folder (optional override)</label>
+<input is="emby-input" id="MoviesPath" placeholder="/media/Movies" aria-describedby="MoviesHelp">
+<button is="emby-button" type="button" id="BrowseMoviesPath" class="raised"><span>Browse folders…</span></button>
+<div id="MoviesHelp" class="fieldDescription">Choosing a Movies library fills its actual folder here, for example /media/Films. Movies go directly inside it: /media/Films/Movie Name (2024). Leave blank to use Movies inside the shared root. Add custom folders to a Movies library under Dashboard → Libraries. Jellyfin needs write access to this folder.</div>
+</div>
+<div class="inputContainer">
+<label class="inputLabel" for="LibraryPath">Shared library root (optional when both destinations are selected)</label>
+<input is="emby-input" id="LibraryPath" placeholder="/media" list="RootSuggestions" aria-describedby="RootHelp">
+<datalist id="RootSuggestions"></datalist>
+<button is="emby-button" type="button" id="BrowseLibraryPath" class="raised"><span>Browse folders…</span></button>
+<div id="RootHelp" class="fieldDescription">Use a common parent such as /media to create /media/Shows and /media/Movies. Suggestions include parents of existing library folders. Each destination above overrides its part of this root. If both destinations are filled, this field can be blank. Incoming and library folders must be separate, with neither inside the other; Shows and Movies destinations must also be separate. Your existing shared-root setting continues to work after upgrading.</div>
+</div>
+
+<div id="FolderBrowser" hidden role="region" aria-labelledby="BrowserTitle" style="border:1px solid currentColor;border-radius:6px;padding:1em;margin:1em 0;">
+<h3 id="BrowserTitle">Browse server folders</h3>
+<p class="fieldDescription">This is the filesystem visible inside your Jellyfin container. Only mounted folders are accessible; it does not expose the entire Synology filesystem. Select an existing folder here. This browser does not upload files or create folders.</p>
+<div class="inputContainer"><label class="inputLabel" for="BrowserPath">Server folder path</label><input is="emby-input" id="BrowserPath" placeholder="Enter a container path, or choose Server roots"></div>
+<button is="emby-button" type="button" id="BrowserOpen" class="raised"><span>Open path</span></button>
+<button is="emby-button" type="button" id="BrowserRoots" class="raised"><span>Server roots</span></button>
+<button is="emby-button" type="button" id="BrowserUp" class="raised"><span>Parent folder</span></button>
+<p id="BrowserStatus" role="status" aria-live="polite"></p>
+<div id="BrowserFolders" style="max-height:18em;overflow-y:auto;"></div>
+<button is="emby-button" type="button" id="BrowserChoose" class="raised button-submit" disabled><span>Use this folder</span></button>
+<button is="emby-button" type="button" id="BrowserCancel" class="raised"><span>Cancel</span></button>
+</div>
+
+<h3>Import behavior</h3>
+<div class="selectContainer"><label class="selectLabel" for="Mode">Import mode</label><select is="emby-select" id="Mode"><option value="Copy">Copy — keep downloads for seeding</option><option value="Move">Move — remove source files after import</option></select><div class="fieldDescription">Copy keeps the torrent's original files for seeding and uses extra disk space. Move removes successfully imported videos and matching subtitles/audio after checks complete; choose it only when your downloader no longer needs the originals. Existing destination files are never overwritten.</div></div>
+<div class="inputContainer"><label class="inputLabel" for="StableSeconds">Wait for unchanged files (seconds)</label><input is="emby-input" id="StableSeconds" type="number" min="1" max="86400" required><div class="fieldDescription">Default 300 seconds (5 minutes). File size and modification time must stay unchanged across polls for this duration. A restart starts the observation period again, and manual scans also honor the delay. Paused torrents can appear stable, so point incoming at completed downloads or use a completion marker.</div></div>
+<div class="inputContainer"><label class="inputLabel" for="CompletionMarker">Optional completion marker filename</label><input is="emby-input" id="CompletionMarker" placeholder=".completed" list="MarkerSuggestions"><datalist id="MarkerSuggestions"><option value=".completed"></option><option value=".done"></option></datalist><div class="fieldDescription">Leave blank unless your downloader creates a marker when it finishes. Enter just a filename such as .completed, not a path. Configure the downloader's completion hook to create this file inside each top-level release folder. With a marker configured, folders without it and loose files directly in incoming are skipped.</div></div>
+<div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input is="emby-checkbox" id="IncludeSeriesYear" type="checkbox"><span>Include year in series folder names when available</span></label><div class="fieldDescription">Creates “Series Name (2024)” instead of “Series Name” when the release name includes a year, helping distinguish remakes. Existing imported folders are not renamed.</div></div>
+<p>Enable real-time monitoring on your Movies and Shows libraries, or schedule scans under Dashboard → Scheduled Tasks. The organizer files media; Jellyfin's library scan makes it appear in your collection.</p>
+<button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
+</form>
+</div></div>
+<script>
+(function () {
+    'use strict';
+    var id = '684d73d5-e50e-4e59-b643-d9d288531cce';
+    var page = document.querySelector('#AutoOrganizerPage');
+    var bools = ['Enabled', 'DryRun', 'IncludeSeriesYear'];
+    var strings = ['IncomingPath', 'LibraryPath', 'ShowsPath', 'MoviesPath', 'CompletionMarker'];
+    var field = function (name) { return page.querySelector('#' + name); };
+    var browserTarget = null;
+    var browserCurrent = '';
+    var browserRequest = 0;
+    function fail(error) { Dashboard.alert((error && error.message) || 'Could not load or save settings.'); }
+    function option(select, value, label) {
+        var item = document.createElement('option');
+        item.value = value;
+        item.textContent = label;
+        select.appendChild(item);
+    }
+    function suggest(list, value) {
+        if (value && !Array.from(list.children).some(function (item) { return item.value === value; })) option(list, value, value);
+    }
+    function parentPath(path) {
+        var trimmed = path.replace(/[\\/]+$/, '');
+        var index = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+        if (index === 0) return trimmed.charAt(0);
+        if (index === 2 && trimmed.charAt(1) === ':') return trimmed.slice(0, 3);
+        return index > 0 ? trimmed.slice(0, index) : '';
+    }
+    function syncLibrary(kind) {
+        var select = field(kind + 'Library');
+        var value = field(kind + 'Path').value.trim();
+        select.value = Array.from(select.options).some(function (item) { return item.value === value; }) ? value : '';
+    }
+    function loadLibraries() {
+        ['Shows', 'Movies'].forEach(function (kind) {
+            var select = field(kind + 'Library');
+            select.replaceChildren();
+            option(select, '', 'Use shared root or enter a custom folder below');
         });
-        page.querySelector('form').addEventListener('submit', function (event) {
-            event.preventDefault();
-            Dashboard.showLoadingMsg();
-            ApiClient.getPluginConfiguration(id).then(function (config) {
-                bools.forEach(function (name) { config[name] = field(name).checked; });
-                strings.forEach(function (name) { config[name] = field(name).value.trim(); });
-                config.Mode = field('Mode').value;
-                config.StableSeconds = Number(field('StableSeconds').value);
-                return ApiClient.updatePluginConfiguration(id, config);
-            }).then(function (result) { Dashboard.processPluginConfigurationUpdateResult(result); })
-                .catch(fail).finally(function () { Dashboard.hideLoadingMsg(); });
+        field('LibraryStatus').textContent = 'Loading existing Jellyfin libraries…';
+        return ApiClient.getVirtualFolders().then(function (libraries) {
+            libraries.forEach(function (library) {
+                var type = (library.CollectionType || '').toLowerCase();
+                var locations = library.Locations && library.Locations.length ? library.Locations : (library.LibraryOptions && library.LibraryOptions.PathInfos || []).map(function (info) { return info.Path; });
+                locations.forEach(function (path) {
+                    if (!path) return;
+                    suggest(field('RootSuggestions'), parentPath(path));
+                    ['Shows', 'Movies'].forEach(function (kind) {
+                        if (!type || type === (kind === 'Shows' ? 'tvshows' : 'movies')) option(field(kind + 'Library'), path, library.Name + ' — ' + path + (!type ? ' (mixed library)' : ''));
+                    });
+                });
+            });
+            ['Shows', 'Movies'].forEach(syncLibrary);
+            field('LibraryStatus').textContent = libraries.length ? 'Library folders loaded. Select a destination or browse to a custom folder.' : 'No libraries found. Add them under Dashboard → Libraries, or enter folders here and add the libraries afterwards.';
+        }).catch(function () {
+            field('LibraryStatus').textContent = 'Could not load libraries. Check that you are signed in as a Jellyfin administrator. You can still enter paths or use Browse folders.';
         });
-    }());
-    </script>
+    }
+    function navigate(path) {
+        var request = ++browserRequest;
+        browserCurrent = '';
+        field('BrowserChoose').disabled = true;
+        field('BrowserUp').disabled = true;
+        field('BrowserFolders').replaceChildren();
+        field('BrowserStatus').textContent = 'Loading server folders…';
+        return Promise.resolve().then(function () {
+            return path ? ApiClient.getDirectoryContents(path, { includeDirectories: true, includeFiles: false }) : ApiClient.getDrives();
+        }).then(function (folders) {
+            if (request !== browserRequest) return;
+            browserCurrent = path;
+            field('BrowserPath').value = path;
+            field('BrowserChoose').disabled = !path;
+            field('BrowserUp').disabled = !path;
+            field('BrowserStatus').textContent = path ? 'Current folder: ' + path + (folders.length ? '' : ' (no subfolders)') : 'Choose a server root to begin.';
+            folders.forEach(function (folder) {
+                var button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'raised emby-button block';
+                button.textContent = folder.Name || folder.Path;
+                button.title = folder.Path;
+                button.addEventListener('click', function () { navigate(folder.Path); });
+                field('BrowserFolders').appendChild(button);
+            });
+        }).catch(function () {
+            if (request !== browserRequest) return;
+            field('BrowserStatus').textContent = 'Cannot open this folder. Check the container path, bind mounts and Jellyfin permissions, or choose Server roots to start again.';
+        });
+    }
+    function closeBrowser() {
+        ++browserRequest;
+        field('FolderBrowser').hidden = true;
+        if (browserTarget) field(browserTarget).focus();
+        browserTarget = null;
+    }
+    ['IncomingPath', 'LibraryPath', 'ShowsPath', 'MoviesPath'].forEach(function (name) {
+        field('Browse' + name).addEventListener('click', function () {
+            browserTarget = name;
+            field('FolderBrowser').hidden = false;
+            field('BrowserTitle').textContent = 'Choose ' + { IncomingPath: 'incoming folder', LibraryPath: 'shared library root', ShowsPath: 'Shows destination', MoviesPath: 'Movies destination' }[name];
+            field('FolderBrowser').scrollIntoView({ block: 'nearest' });
+            field('BrowserPath').focus();
+            navigate(field(name).value.trim());
+        });
+    });
+    ['Shows', 'Movies'].forEach(function (kind) {
+        field(kind + 'Library').addEventListener('change', function () { field(kind + 'Path').value = this.value; });
+        field(kind + 'Path').addEventListener('input', function () { syncLibrary(kind); });
+    });
+    field('BrowserRoots').addEventListener('click', function () { navigate(''); });
+    field('BrowserOpen').addEventListener('click', function () { navigate(field('BrowserPath').value.trim()); });
+    field('BrowserPath').addEventListener('input', function () {
+        ++browserRequest;
+        browserCurrent = '';
+        field('BrowserChoose').disabled = true;
+        field('BrowserUp').disabled = true;
+        field('BrowserStatus').textContent = 'Choose Open path to load this folder before selecting it.';
+    });
+    field('BrowserPath').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') { event.preventDefault(); navigate(this.value.trim()); }
+    });
+    field('BrowserUp').addEventListener('click', function () {
+        var path = browserCurrent;
+        var request = browserRequest;
+        ApiClient.getParentPath(path).then(function (parent) {
+            if (request !== browserRequest) return;
+            try { parent = JSON.parse(parent); } catch (error) { /* Some clients already decode JSON. */ }
+            navigate(parent || '');
+        }).catch(function () { if (request === browserRequest) navigate(parentPath(path)); });
+    });
+    field('BrowserCancel').addEventListener('click', closeBrowser);
+    field('BrowserChoose').addEventListener('click', function () {
+        if (!browserTarget || !browserCurrent) return;
+        field(browserTarget).value = browserCurrent;
+        if (browserTarget === 'ShowsPath') syncLibrary('Shows');
+        if (browserTarget === 'MoviesPath') syncLibrary('Movies');
+        if (browserTarget === 'IncomingPath') suggest(field('IncomingSuggestions'), browserCurrent);
+        if (browserTarget === 'LibraryPath') suggest(field('RootSuggestions'), browserCurrent);
+        closeBrowser();
+    });
+    page.addEventListener('pagehide', closeBrowser);
+    page.addEventListener('pageshow', function () {
+        Dashboard.showLoadingMsg();
+        ApiClient.getPluginConfiguration(id).then(function (config) {
+            bools.forEach(function (name) { field(name).checked = config[name]; });
+            strings.forEach(function (name) { field(name).value = config[name] || ''; });
+            field('StableSeconds').value = config.StableSeconds;
+            field('Mode').value = config.Mode === 1 ? 'Move' : (config.Mode === 0 ? 'Copy' : config.Mode);
+            suggest(field('IncomingSuggestions'), config.IncomingPath);
+            suggest(field('RootSuggestions'), config.LibraryPath);
+            return loadLibraries();
+        }).catch(fail).finally(function () { Dashboard.hideLoadingMsg(); });
+    });
+    page.querySelector('form').addEventListener('submit', function (event) {
+        event.preventDefault();
+        if (!field('LibraryPath').value.trim() && (!field('ShowsPath').value.trim() || !field('MoviesPath').value.trim())) {
+            Dashboard.alert('Choose both Shows and Movies destinations, or enter a shared library root.');
+            return;
+        }
+        Dashboard.showLoadingMsg();
+        ApiClient.getPluginConfiguration(id).then(function (config) {
+            bools.forEach(function (name) { config[name] = field(name).checked; });
+            strings.forEach(function (name) { config[name] = field(name).value.trim(); });
+            config.Mode = field('Mode').value;
+            config.StableSeconds = Number(field('StableSeconds').value);
+            return ApiClient.updatePluginConfiguration(id, config);
+        }).then(function (result) { Dashboard.processPluginConfigurationUpdateResult(result); })
+            .catch(fail).finally(function () { Dashboard.hideLoadingMsg(); });
+    });
+}());
+</script>
 </div>
 </body>
 </html>

@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$ArchivePath,
-    [string]$Version = '1.0.0',
+    [string]$Version = '1.0.1',
     [string]$JellyfinVersion = '10.11.5',
     [string]$Repository = 'dankrusi/Jellyfin-AutoOrganizer',
     [string]$ManifestPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'manifest.json')
@@ -20,7 +20,7 @@ try {
 $assetName = [IO.Path]::GetFileName($ArchivePath)
 $versionEntry = [ordered]@{
     version = $pluginVersion
-    changelog = 'Organize movie and TV downloads, with preview, copy/move, completion gating, and subtitle support.'
+    changelog = 'Add existing Jellyfin library selectors, separate Movies and Shows destinations, a server folder browser, path suggestions, and detailed setup help.'
     targetAbi = $targetAbi
     sourceUrl = "https://github.com/$Repository/releases/download/v$Version/$assetName"
     checksum = (Get-FileHash -LiteralPath $ArchivePath -Algorithm MD5).Hash.ToLowerInvariant()

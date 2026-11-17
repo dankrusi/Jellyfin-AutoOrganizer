@@ -121,8 +121,7 @@ public sealed class OrganizerEngineTests : IDisposable
         Directory.CreateDirectory(Library);
         var link = Path.Combine(Library, "Movies");
         Directory.CreateSymbolicLink(link, outside);
-        var report = await SettledScan(new(State), Settings with { Mode = ImportMode.Move });
-        Assert.Equal(1, report.Errors);
+        await Assert.ThrowsAsync<IOException>(() => new OrganizerEngine(State).ScanAsync(Settings with { Mode = ImportMode.Move }));
         Assert.True(File.Exists(source));
         Assert.Empty(Directory.GetFiles(outside, "*", SearchOption.AllDirectories));
     }
@@ -219,6 +218,56 @@ public sealed class OrganizerEngineTests : IDisposable
         var report = await SettledScan(engine, Settings with { Mode = ImportMode.Move });
         Assert.Equal(1, report.Errors);
         Assert.True(File.Exists(source));
+    }
+
+    [Fact]
+    public async Task ExistingLibraryDestinationsAreUsedWithoutExtraCategoryFolders()
+    {
+        Add("Caminandes.S01E01.mkv");
+        Add("Big.Buck.Bunny.2008.mkv");
+        var shows = Path.Combine(_root, "existing-tv-library");
+        var movies = Path.Combine(_root, "existing-film-library");
+        var settings = Settings with { LibraryPath = "", ShowsPath = shows, MoviesPath = movies };
+        var report = await SettledScan(new(State), settings);
+        Assert.Equal(2, report.Imported);
+        Assert.Equal(0, report.Errors);
+        Assert.True(File.Exists(Path.Combine(shows, "Caminandes", "Season 01", "Caminandes - S01E01.mkv")));
+        Assert.True(File.Exists(Path.Combine(movies, "Big Buck Bunny (2008)", "Big Buck Bunny (2008).mkv")));
+        Assert.False(Directory.Exists(Path.Combine(shows, "Shows")));
+        Assert.False(Directory.Exists(Path.Combine(movies, "Movies")));
+    }
+
+    [Fact]
+    public async Task OneOverrideKeepsSharedRootFallbackForOtherMedia()
+    {
+        Add("Caminandes.S01E01.mkv");
+        Add("Big.Buck.Bunny.2008.mkv");
+        var movies = Path.Combine(_root, "existing-film-library");
+        var report = await SettledScan(new(State), Settings with { MoviesPath = movies });
+        Assert.Equal(2, report.Imported);
+        Assert.True(File.Exists(Path.Combine(Library, "Shows", "Caminandes", "Season 01", "Caminandes - S01E01.mkv")));
+        Assert.True(File.Exists(Path.Combine(movies, "Big Buck Bunny (2008)", "Big Buck Bunny (2008).mkv")));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task OverridesCannotOverlapIncoming(bool shows)
+    {
+        var settings = shows ? Settings with { ShowsPath = Path.Combine(Incoming, "tv") } : Settings with { MoviesPath = Incoming };
+        await Assert.ThrowsAsync<ArgumentException>(() => new OrganizerEngine(State).ScanAsync(settings));
+    }
+
+    [Fact]
+    public async Task MissingRootRequiresBothOverrides()
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => new OrganizerEngine(State).ScanAsync(Settings with { LibraryPath = "", ShowsPath = Path.Combine(_root, "tv") }));
+    }
+
+    [Fact]
+    public async Task OverlappingMediaDestinationsAreRejected()
+    {
+        await Assert.ThrowsAsync<ArgumentException>(() => new OrganizerEngine(State).ScanAsync(Settings with { ShowsPath = Library, MoviesPath = Path.Combine(Library, "nested-movies") }));
     }
 
     [Fact]

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Usage: sh install-synology.sh /path/to/extracted/AutoOrganizer_1.0.0 /path/to/jellyfin/plugins
+# Usage: sh install-synology.sh /path/to/extracted/AutoOrganizer_1.0.1 /path/to/jellyfin/plugins
 # Stop Jellyfin in Container Manager before running. This script does not restart services.
 set -eu
 if [ "$#" -ne 2 ]; then
@@ -16,7 +16,12 @@ if [ ! -d "$plugins_dir" ]; then
     echo "JELLYFIN_PLUGINS_FOLDER must already exist. Check the Jellyfin config bind mount." >&2
     exit 1
 fi
-target_dir="$plugins_dir/AutoOrganizer_1.0.0"
+plugin_name=$(basename "$source_dir")
+case "$plugin_name" in
+    AutoOrganizer_[0-9]*) ;;
+    *) echo "Expected an extracted AutoOrganizer_VERSION folder." >&2; exit 1 ;;
+esac
+target_dir="$plugins_dir/$plugin_name"
 if [ -e "$target_dir" ]; then
     echo "Target already exists: $target_dir. Move the previous installation outside plugins first." >&2
     exit 1

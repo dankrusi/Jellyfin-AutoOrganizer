@@ -1,6 +1,6 @@
 param(
     [string]$JellyfinVersion = '10.11.5',
-    [string]$Version = '1.0.0',
+    [string]$Version = '1.0.1',
     [switch]$Catalog
 )
 $ErrorActionPreference = 'Stop'

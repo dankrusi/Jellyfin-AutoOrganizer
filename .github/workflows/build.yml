@@ -16,6 +16,10 @@ jobs:
           dotnet-version: '9.0.x'
       - run: dotnet build Jellyfin.AutoOrganizer.sln -c Release
       - run: dotnet test Jellyfin.AutoOrganizer.sln -c Release --no-build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test tests/config-page.test.cjs
       - name: Package
         shell: pwsh
         run: ./scripts/package.ps1

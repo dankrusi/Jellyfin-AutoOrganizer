@@ -45,7 +45,7 @@ The structure follows Jellyfin's [TV](https://jellyfin.org/docs/general/server/m
    ```
 
 3. Save, open the **Catalog** tab, and install **Auto Organizer**.
-4. Restart Jellyfin, then open **Dashboard → Plugins → My Plugins → Auto Organizer** to configure the incoming folder and library root. Enable monitoring, keep **Preview only** on for the first run, and save.
+4. Restart Jellyfin, then open **Dashboard → Plugins → My Plugins → Auto Organizer**. Use **Browse folders** for incoming downloads and choose your existing Shows and Movies libraries from the dropdowns. Enable monitoring, keep **Preview only** on for the first run, and save.
 
 The catalog build targets Jellyfin **10.11.5**. Jellyfin filters out releases targeting a newer server version. The plugin cannot create container bind mounts or DSM permissions; follow the folder-mapping steps below before enabling imports. The repository supplies future tagged versions through Jellyfin's plugin update system.
 
@@ -56,8 +56,8 @@ Releases include a `-catalog.zip` whose DLLs are at the ZIP root for Jellyfin's 
 No compilation is needed on the NAS. Use the ZIP in `artifacts/`, or a ZIP from the repository's Actions artifacts after running CI.
 
 1. **Stop Jellyfin** in Container Manager.
-2. Extract `AutoOrganizer-1.0.0-jellyfin-10.11.5.zip` on your computer or with File Station. It contains an `AutoOrganizer_1.0.0` folder with **both** DLLs.
-3. Copy that whole folder into Jellyfin's persistent **plugins directory**. For the official `jellyfin/jellyfin` image with host `/volume1/docker/jellyfin/config` mapped to container `/config`, this is normally `/volume1/docker/jellyfin/config/plugins/AutoOrganizer_1.0.0/`. Locate the actual directory in your deployment; third-party packages/images can differ. Create `plugins` if necessary. Ensure Jellyfin's user can read both DLLs.
+2. Extract `AutoOrganizer-1.0.1-jellyfin-10.11.5.zip` on your computer or with File Station. It contains an `AutoOrganizer_1.0.1` folder with **both** DLLs.
+3. Copy that whole folder into Jellyfin's persistent **plugins directory**. For the official `jellyfin/jellyfin` image with host `/volume1/docker/jellyfin/config` mapped to container `/config`, this is normally `/volume1/docker/jellyfin/config/plugins/AutoOrganizer_1.0.1/`. Locate the actual directory in your deployment; third-party packages/images can differ. Create `plugins` if necessary. Ensure Jellyfin's user can read both DLLs.
 4. Map your completed downloads and media library into the Jellyfin container, if not already mapped. Example:
 
    | Synology host folder | Container folder | Access |
@@ -68,7 +68,7 @@ No compilation is needed on the NAS. Use the ZIP in `artifacts/`, or a ZIP from 
 
    Grant the container's user the corresponding DSM shared-folder/ACL permissions. These are examples; use your existing paths. Container paths and host paths are different. See Jellyfin's [container documentation](https://jellyfin.org/docs/general/installation/container/) for bind mounts.
 5. Start Jellyfin. Open **Dashboard → Plugins → My Plugins → Auto Organizer**.
-6. Configure incoming `/downloads/completed` and library root `/media`. Enable monitoring, keep **Preview only** enabled, and save.
+6. Use **Browse folders** to choose incoming `/downloads/completed`. Choose your existing Shows and Movies libraries from the dropdowns, or set shared library root `/media` to create `Shows` and `Movies` underneath. Enable monitoring, keep **Preview only** enabled, and save.
 7. The task polls every minute and waits for five minutes of observed file stability. Review `AutoOrganizer Preview` lines in **Dashboard → Logs**. Under **Scheduled Tasks → Auto Organizer → Organize incoming downloads**, you can start a scan manually or change the interval. Repeated manual scans still honor the stability delay.
 8. Once previews look correct, turn preview off. **Copy** is the default and keeps the torrent's originals for seeding. Choose **Move** only if the torrent client no longer needs the originals.
 9. Add a **Shows** library for `/media/Shows` and a **Movies** library for `/media/Movies` under Dashboard → Libraries. Enable real-time monitoring on these libraries, or schedule scans. The organizer does not run a full Jellyfin library scan on every poll.
@@ -76,10 +76,20 @@ No compilation is needed on the NAS. Use the ZIP in `artifacts/`, or a ZIP from 
 If you prefer SSH after extracting the archive, the optional installer copies the two DLLs into an existing plugins directory:
 
 ```sh
-sh scripts/install-synology.sh /volume1/downloads/AutoOrganizer_1.0.0 /volume1/docker/jellyfin/config/plugins
+sh scripts/install-synology.sh /volume1/downloads/AutoOrganizer_1.0.1 /volume1/docker/jellyfin/config/plugins
 ```
 
 Stop Jellyfin first and start it afterwards. For updates, move the old plugin folder **outside** the plugins directory before copying a replacement. Keep only one Auto Organizer installation. To uninstall, stop Jellyfin, remove its plugin folder, and restart. Organized media is unaffected.
+
+## Choosing folders on Synology
+
+Every folder field includes **Browse folders**, which lists server roots and their subfolders through Jellyfin's authenticated admin APIs. Open a folder, use **Parent folder** to go up, and choose **Use this folder**. You can also type a container path and select **Open path**. The browser selects existing server folders; it does not upload files, expose your computer's files, create folders, or add NAS bind mounts.
+
+The **Existing Shows library** and **Existing Movies library** dropdowns read the libraries under **Dashboard → Libraries**. Each physical folder appears separately, filtered by library type; mixed libraries appear in both dropdowns. Selected folders receive media directly. For example, choosing Shows library `/media/TV` produces `/media/TV/Caminandes/Season 01`, without an extra `Shows` folder. Choosing Movies library `/films` produces `/films/Big Buck Bunny (2008)`. Jellyfin needs write permission for these destinations.
+
+Both destinations have editable overrides and a browser. Alternatively, use **Shared library root** `/media` for `/media/Shows` and `/media/Movies`; each explicit destination overrides its part of the shared root. The shared root may be blank when both destinations are selected. Existing shared-root configurations continue to work after updating. Parent-folder suggestions are available in the shared-root input.
+
+To find a container path, open **Container Manager → your Jellyfin container → Volume settings** and inspect the container side of the mapping. For example, Synology `/volume1/media` may map to container `/media`; the plugin uses `/media`. File Station displays the host side. If a folder is missing from the browser, mount it into the Jellyfin container and check DSM shared-folder/ACL permissions for the container user. Choose paths inside the container even when the downloader runs on the same NAS. Field descriptions include these instructions, preview/log locations, seeding behavior, the stability delay, and completion-marker setup.
 
 ## Download completion and torrent seeding
 
@@ -118,6 +128,7 @@ Install .NET SDK 9 or later on a development computer:
 ```powershell
 dotnet build Jellyfin.AutoOrganizer.sln -c Release
 dotnet test Jellyfin.AutoOrganizer.sln -c Release
+node --test tests/config-page.test.cjs
 pwsh -File scripts/package.ps1
 ```
 
@@ -129,7 +140,7 @@ pwsh -File scripts/package.ps1 -JellyfinVersion 10.11.5
 
 That parameter changes the Jellyfin NuGet references. A different Jellyfin major/minor release may also require code or target-framework changes. Do not assume compatibility from a successful DLL copy.
 
-Tests cover torrent release parsing (including multi-season packs), movies, numeric titles, subtitle naming, copy/move, repeat imports after restart, existing-file conflicts, incomplete files, completion markers, stability windows, cancellation, path overlap, and corrupt state. Two symlink tests run on Unix and are explicitly skipped on Windows, where creating symlinks requires additional privileges. No NAS is required to run the tests.
+Tests cover torrent release parsing (including multi-season packs), movies, numeric titles, subtitle naming, copy/move, repeat imports after restart, existing-file conflicts, incomplete files, completion markers, stability windows, cancellation, destination overrides, path overlap, and corrupt state. The configuration tests cover library discovery/filtering, selected-path persistence, folder browsing/navigation, cancellation, stale responses, error handling, and upgrades from shared-root settings. The Node tests use the built-in test runner and require no npm dependencies (Node 24 is used in CI). Two symlink tests run on Unix and are explicitly skipped on Windows, where creating symlinks requires additional privileges. No NAS is required to run the tests.
 
 Licensed under GPL-3.0, consistent with the Jellyfin plugin template. See [LICENSE](LICENSE).
 

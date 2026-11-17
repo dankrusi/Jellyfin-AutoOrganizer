@@ -48,17 +48,24 @@ public sealed class OrganizerEngine(string stateDirectory, Action<ScanEntry>? on
         }
 
         var incoming = RequireAbsolute(settings.IncomingPath);
-        var library = RequireAbsolute(settings.LibraryPath);
-        if (Within(incoming, library) || Within(library, incoming)) throw new ArgumentException("Incoming and library folders must be separate, with neither inside the other.");
+        var library = string.IsNullOrWhiteSpace(settings.LibraryPath) ? null : RequireAbsolute(settings.LibraryPath);
+        if (library is null && (string.IsNullOrWhiteSpace(settings.ShowsPath) || string.IsNullOrWhiteSpace(settings.MoviesPath)))
+            throw new ArgumentException("Set a shared library root, or select both Shows and Movies destinations.");
+        var shows = string.IsNullOrWhiteSpace(settings.ShowsPath) ? Path.Combine(library!, "Shows") : RequireAbsolute(settings.ShowsPath);
+        var movies = string.IsNullOrWhiteSpace(settings.MoviesPath) ? Path.Combine(library!, "Movies") : RequireAbsolute(settings.MoviesPath);
+        var libraryRoots = library is null ? new[] { shows, movies } : new[] { library, shows, movies };
+        if (libraryRoots.Any(root => Within(incoming, root) || Within(root, incoming)))
+            throw new ArgumentException("Incoming and library folders must be separate, with neither inside the other.");
+        if (Within(shows, movies) || Within(movies, shows)) throw new ArgumentException("Shows and Movies destinations must be separate, with neither inside the other.");
         if (!Directory.Exists(incoming)) throw new DirectoryNotFoundException($"Incoming folder does not exist: {incoming}");
         if (settings.StableSeconds < 1) throw new ArgumentException("StableSeconds must be at least 1.");
         if (!Enum.IsDefined(settings.Mode)) throw new ArgumentException("Invalid import mode.");
         var marker = settings.CompletionMarker.Trim();
         if (marker.Length > 0 && (marker is "." or ".." || marker.IndexOfAny(['/', '\\']) >= 0)) throw new ArgumentException("Completion marker must be a filename, not a path.");
         EnsureNoLinks(incoming);
-        EnsureNoLinks(library);
+        foreach (var root in libraryRoots) EnsureNoLinks(root);
         var state = Path.GetFullPath(stateDirectory);
-        if (Within(state, incoming) || Within(state, library)) throw new ArgumentException("State directory must be outside incoming and library folders.");
+        if (Within(state, incoming) || libraryRoots.Any(root => Within(state, root))) throw new ArgumentException("State directory must be outside incoming and library folders.");
         Directory.CreateDirectory(state);
         EnsureNoLinks(state);
         var receiptsPath = Path.Combine(state, "receipts.json");
@@ -96,8 +103,9 @@ public sealed class OrganizerEngine(string stateDirectory, Action<ScanEntry>? on
                 { Record(video, null, "Waiting", "Completion marker missing; marker mode requires a top-level download folder."); continue; }
                 var identity = ReleaseParser.Parse(relative);
                 if (identity is null) { Record(video, null, "Skipped", "Cannot confidently identify title/year or season/episode."); continue; }
-                destination = Path.Combine(library, identity.RelativeDestination(Path.GetExtension(video), settings.IncludeSeriesYear));
-                if (!Within(destination, library)) throw new IOException("Destination escapes library root.");
+                var destinationRoot = identity.IsSeries ? shows : movies;
+                destination = Path.Combine(destinationRoot, identity.RelativeDestination(Path.GetExtension(video), settings.IncludeSeriesYear, includeCategory: false));
+                if (!Within(destination, destinationRoot)) throw new IOException("Destination escapes library root.");
                 var sourceStem = Path.GetFileNameWithoutExtension(video);
                 var destinationStem = Path.GetFileNameWithoutExtension(destination);
                 var sidecars = byDirectory[Path.GetDirectoryName(video)!]
