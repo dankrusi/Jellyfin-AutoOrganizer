@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$ArchivePath,
-    [string]$Version = '1.0.1',
+    [string]$Version = '1.0.2',
     [string]$JellyfinVersion = '10.11.5',
     [string]$Repository = 'dankrusi/Jellyfin-AutoOrganizer',
     [string]$ManifestPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'manifest.json')
@@ -20,7 +20,7 @@ try {
 $assetName = [IO.Path]::GetFileName($ArchivePath)
 $versionEntry = [ordered]@{
     version = $pluginVersion
-    changelog = 'Add existing Jellyfin library selectors, separate Movies and Shows destinations, a server folder browser, path suggestions, and detailed setup help.'
+    changelog = 'Move mode now preserves remaining release files and removes empty source folders. Strip torrent-site prefixes from titles, add versioned settings URLs, and verify packaged DLL versions and embedded settings against release source.'
     targetAbi = $targetAbi
     sourceUrl = "https://github.com/$Repository/releases/download/v$Version/$assetName"
     checksum = (Get-FileHash -LiteralPath $ArchivePath -Algorithm MD5).Hash.ToLowerInvariant()

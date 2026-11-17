@@ -16,7 +16,7 @@ public sealed class OrganizeDownloadsTask : IScheduledTask
         _engine = new OrganizerEngine(Path.Combine(paths.DataPath, "autoorganizer"), entry =>
         {
             if (entry.Status == "Error") logger.LogWarning("AutoOrganizer {Status}: {Source} -> {Destination}: {Detail}", entry.Status, entry.Source, entry.Destination, entry.Detail);
-            else if (entry.Status is "Imported" or "Preview" or "Skipped") logger.LogInformation("AutoOrganizer {Status}: {Source} -> {Destination}: {Detail}", entry.Status, entry.Source, entry.Destination, entry.Detail);
+            else if (entry.Status is "Imported" or "Preview" or "Skipped" or "Cleaned") logger.LogInformation("AutoOrganizer {Status}: {Source} -> {Destination}: {Detail}", entry.Status, entry.Source, entry.Destination, entry.Detail);
             else logger.LogDebug("AutoOrganizer {Status}: {Source}: {Detail}", entry.Status, entry.Source, entry.Detail);
         });
     }

@@ -53,7 +53,7 @@ jobs:
               exit 1
             fi
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Auto Organizer $PLUGIN_VERSION" --notes "Movie and series organization for Jellyfin 10.11.5. Includes existing-library selectors, a server folder browser and Synology setup help. Install or update through the repository URL in the README, then restart Jellyfin. Existing shared-root settings are preserved."
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Auto Organizer $PLUGIN_VERSION" --notes "Movie and series organization for Jellyfin 10.11.5. Move mode preserves release attachments and cleans empty source folders. Includes library selectors, folder browsing, torrent-prefix cleanup and verified embedded settings. Update through the repository URL in the README and restart Jellyfin."
           fi
           gh release upload "$RELEASE_TAG" artifacts/*.zip artifacts/*.sha256 --clobber
       - name: Update catalog on current default branch

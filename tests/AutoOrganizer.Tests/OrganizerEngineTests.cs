@@ -56,7 +56,7 @@ public sealed class OrganizerEngineTests : IDisposable
     }
 
     [Fact]
-    public async Task MoveWorksAcrossFoldersAndRetainsUnrelatedFiles()
+    public async Task MovePreservesReleaseFilesAndRemovesEmptySourceFolder()
     {
         var source = Add("The.Matrix.1999.1080p/The.Matrix.1999.1080p.mkv");
         var subtitle = Add("The.Matrix.1999.1080p/The.Matrix.1999.1080p.srt");
@@ -65,7 +65,10 @@ public sealed class OrganizerEngineTests : IDisposable
         Assert.Equal(1, report.Imported);
         Assert.False(File.Exists(source));
         Assert.False(File.Exists(subtitle));
-        Assert.True(File.Exists(unrelated));
+        Assert.False(File.Exists(unrelated));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(unrelated)!));
+        Assert.True(File.Exists(Path.Combine(Library, "Movies", "The Matrix (1999)", ".download-extras", "The.Matrix.1999.1080p", "release.nfo")));
+        Assert.True(File.Exists(Path.Combine(Library, "Movies", "The Matrix (1999)", ".download-extras", ".ignore")));
         Assert.True(File.Exists(Path.Combine(Library, "Movies", "The Matrix (1999)", "The Matrix (1999).mkv")));
     }
 
@@ -271,6 +274,89 @@ public sealed class OrganizerEngineTests : IDisposable
     }
 
     [Fact]
+    public async Task TorrentReleaseFolderPreservesNestedHiddenZeroByteAndSampleFiles()
+    {
+        const string release = "www.UIndex.org    -    Sirat (2025) 1080p BluRay 5.1-WORLD";
+        Add(release + "/movie.mkv");
+        Add(release + "/movie.en.srt", "subtitles");
+        Add(release + "/readme.txt", "torrent notes");
+        Add(release + "/art/poster.jpg", "poster");
+        Add(release + "/.completed", "");
+        Add(release + "/Sample/sample.mkv", "sample video");
+        var report = await SettledScan(new(State), Settings with { Mode = ImportMode.Move, CompletionMarker = ".completed" });
+        Assert.Equal(0, report.Errors);
+        var title = Path.Combine(Library, "Movies", "Sirat (2025)");
+        Assert.True(File.Exists(Path.Combine(title, "Sirat (2025).mkv")));
+        Assert.Equal("subtitles", File.ReadAllText(Path.Combine(title, "Sirat (2025).en.srt")));
+        var archive = Path.Combine(title, ".download-extras", ReleaseParser.SafeName(release));
+        Assert.Equal("torrent notes", File.ReadAllText(Path.Combine(archive, "readme.txt")));
+        Assert.Equal("poster", File.ReadAllText(Path.Combine(archive, "art", "poster.jpg")));
+        Assert.Equal("sample video", File.ReadAllText(Path.Combine(archive, "Sample", "sample.mkv")));
+        Assert.True(File.Exists(Path.Combine(archive, ".completed")));
+        Assert.False(Directory.Exists(Path.Combine(Incoming, release)));
+        Assert.Contains(report.Entries, e => e.Status == "Cleaned");
+        Assert.True(Directory.Exists(Incoming));
+    }
+
+    [Fact]
+    public async Task CopyLeavesEntireOriginalReleaseUntouched()
+    {
+        var movie = Add("Big.Buck.Bunny.2008/movie.mkv");
+        var junk = Add("Big.Buck.Bunny.2008/readme.txt");
+        var report = await SettledScan(new(State), Settings);
+        Assert.Equal(0, report.Errors);
+        Assert.True(File.Exists(movie));
+        Assert.True(File.Exists(junk));
+        Assert.False(Directory.Exists(Path.Combine(Library, "Movies", "Big Buck Bunny (2008)", ".download-extras")));
+    }
+
+    [Fact]
+    public async Task SeriesPackPreservesAttachmentsOnceUnderSeriesAndCleansAllSeasons()
+    {
+        Add("Caminandes.S01-S02/Season 01/Caminandes.S01E01.mkv");
+        Add("Caminandes.S01-S02/Season 02/Caminandes.S02E01.mkv");
+        Add("Caminandes.S01-S02/release.nfo", "notes");
+        var report = await SettledScan(new(State), Settings with { Mode = ImportMode.Move });
+        Assert.Equal(2, report.Imported);
+        Assert.Equal(0, report.Errors);
+        Assert.True(File.Exists(Path.Combine(Library, "Shows", "Caminandes", ".download-extras", "Caminandes.S01-S02", "release.nfo")));
+        Assert.False(Directory.Exists(Path.Combine(Incoming, "Caminandes.S01-S02")));
+    }
+
+    [Fact]
+    public async Task UnknownMainVideoPreventsReleaseCleanup()
+    {
+        Add("release/Big.Buck.Bunny.2008.mkv");
+        var unknown = Add("release/unknown.mkv");
+        var junk = Add("release/readme.txt");
+        var report = await SettledScan(new(State), Settings with { Mode = ImportMode.Move });
+        Assert.Equal(0, report.Errors);
+        Assert.True(File.Exists(unknown));
+        Assert.True(File.Exists(junk));
+        Assert.Contains(report.Entries, e => e.Detail.Contains("unimported video"));
+    }
+
+    [Fact]
+    public async Task FailedAttachmentTransferKeepsSourcesAndCanResumeAfterRestart()
+    {
+        Add("Big.Buck.Bunny.2008/movie.mkv");
+        var junk = Add("Big.Buck.Bunny.2008/readme.txt", "source notes");
+        var archive = Path.Combine(Library, "Movies", "Big Buck Bunny (2008)", ".download-extras", "Big.Buck.Bunny.2008", "readme.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(archive)!);
+        File.WriteAllText(archive, "existing notes");
+        var report = await SettledScan(new(State), Settings with { Mode = ImportMode.Move });
+        Assert.Equal(1, report.Errors);
+        Assert.True(File.Exists(junk));
+        Assert.Equal("existing notes", File.ReadAllText(archive));
+        // Resolve the conflict by retaining the pre-existing attachment elsewhere.
+        File.Move(archive, archive + ".backup");
+        var retry = await SettledScan(new(State), Settings with { Mode = ImportMode.Move });
+        Assert.Equal(0, retry.Errors);
+        Assert.Equal("source notes", File.ReadAllText(archive));
+        Assert.False(Directory.Exists(Path.Combine(Incoming, "Big.Buck.Bunny.2008")));
+    }
+
+    [Fact]
     public async Task DamagedLedgerFailsWithoutDeletingSources()
     {
         var source = Add("Dune.2021.mkv");
@@ -288,6 +374,42 @@ public sealed class OrganizerEngineTests : IDisposable
         cts.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new OrganizerEngine(State).ScanAsync(Settings, cts.Token));
         Assert.True(File.Exists(source));
+    }
+
+    [Fact]
+    public async Task ChangingAttachmentWaitsThenFinishesUsingReceiptAfterVideoHasMoved()
+    {
+        Add("Big.Buck.Bunny.2008/movie.mkv");
+        var junk = Add("Big.Buck.Bunny.2008/readme.txt", "notes");
+        var engine = new OrganizerEngine(State);
+        var settings = Settings with { Mode = ImportMode.Move };
+        await engine.ScanAsync(settings);
+        await Task.Delay(1100);
+        File.AppendAllText(junk, " still downloading");
+        var first = await engine.ScanAsync(settings);
+        Assert.Equal(1, first.Imported);
+        Assert.True(File.Exists(junk));
+        Assert.Contains(first.Entries, e => e.Detail.Contains("remaining release files to stop changing"));
+        var restarted = await SettledScan(new(State), settings);
+        Assert.Equal(0, restarted.Errors);
+        Assert.False(Directory.Exists(Path.Combine(Incoming, "Big.Buck.Bunny.2008")));
+        Assert.Equal("notes still downloading", File.ReadAllText(Path.Combine(Library, "Movies", "Big Buck Bunny (2008)", ".download-extras", "Big.Buck.Bunny.2008", "readme.txt")));
+    }
+
+    [UnixFact]
+    public async Task ReleaseCleanupDoesNotFollowOrDeleteSymbolicLinks()
+    {
+        Add("Big.Buck.Bunny.2008/movie.mkv");
+        var outside = Path.Combine(_root, "outside-attachments");
+        Directory.CreateDirectory(outside);
+        File.WriteAllText(Path.Combine(outside, "important.txt"), "keep me");
+        var source = Path.Combine(Incoming, "Big.Buck.Bunny.2008");
+        Directory.CreateSymbolicLink(Path.Combine(source, "linked"), outside);
+        var report = await SettledScan(new(State), Settings with { Mode = ImportMode.Move });
+        Assert.Equal(0, report.Errors);
+        Assert.Equal("keep me", File.ReadAllText(Path.Combine(outside, "important.txt")));
+        Assert.True(Directory.Exists(source));
+        Assert.Contains(report.Entries, e => e.Status == "Waiting" && e.Detail.Contains("links"));
     }
 
     public void Dispose()

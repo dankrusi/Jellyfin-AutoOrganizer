@@ -77,17 +77,20 @@ public sealed class OrganizerEngine(string stateDirectory, Action<ScanEntry>? on
         // Never follow reparse points, including symlinked media files and directories.
         var enumeration = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = false, AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System };
         var files = Directory.GetFiles(incoming, "*", enumeration);
-        var seen = new HashSet<string>(files, PathComparer);
+        // Observe hidden/zero-byte release attachments too, so Move can preserve
+        // the entire release after its media has been imported successfully.
+        var allFiles = Directory.GetFiles(incoming, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = false, AttributesToSkip = FileAttributes.ReparsePoint });
+        var seen = new HashSet<string>(allFiles, PathComparer);
         foreach (var stale in _observations.Keys.Where(p => !seen.Contains(p)).ToArray()) _observations.Remove(stale);
         var now = DateTime.UtcNow;
-        foreach (var file in files)
+        foreach (var file in allFiles)
         {
             var snapshot = ReadSnapshot(file);
             if (!_observations.TryGetValue(file, out var previous) || previous.Snapshot != snapshot)
                 _observations[file] = new(snapshot, now);
         }
 
-        var blockedPacks = files.Where(IsPartial).Select(f => DownloadUnit(incoming, f)).ToHashSet(PathComparer);
+        var blockedPacks = allFiles.Where(IsPartial).Select(f => DownloadUnit(incoming, f)).ToHashSet(PathComparer);
         var byDirectory = files.GroupBy(f => Path.GetDirectoryName(f)!, PathComparer).ToDictionary(g => g.Key, g => g.ToArray(), PathComparer);
         foreach (var video in files.Where(f => VideoExtensions.Contains(Path.GetExtension(f))).OrderBy(p => p, PathComparer))
         {
@@ -126,7 +129,8 @@ public sealed class OrganizerEngine(string stateDirectory, Action<ScanEntry>? on
                 if (settings.DryRun)
                 {
                     if (group.Any(p => !HasReceipt(p.Source, p.Destination, receipts)))
-                        Record(video, destination, "Preview", $"Would {settings.Mode.ToString().ToLowerInvariant()} video and {group.Length - 1} sidecar(s).");
+                        Record(video, destination, "Preview", $"Would {settings.Mode.ToString().ToLowerInvariant()} video and {group.Length - 1} sidecar(s)." +
+                            (settings.Mode == ImportMode.Move && unit != incoming ? $" Remaining release files will be preserved under {Path.Combine(ContentFolder(identity, destination), ".download-extras", ReleaseParser.SafeName(Path.GetFileName(unit)))} and empty source folders removed after the release finishes." : ""));
                     continue;
                 }
                 var imported = false;
@@ -159,15 +163,132 @@ public sealed class OrganizerEngine(string stateDirectory, Action<ScanEntry>? on
                 Record(video, destination, "Error", ex.Message);
             }
         }
+        if (settings.Mode == ImportMode.Move && !settings.DryRun)
+            await FinishReleaseFoldersAsync(incoming, shows, movies, settings, receipts, receiptsPath, now, Record, cancellationToken).ConfigureAwait(false);
         await WriteJsonAsync(Path.Combine(state, "last-run.json"), report, cancellationToken).ConfigureAwait(false);
         return report;
     }
 
-    private bool IsStable(string path, DateTime now, int seconds) =>
-        _observations.TryGetValue(path, out var observation) && observation.Snapshot.Length > 0 &&
+    private bool IsStable(string path, DateTime now, int seconds, bool allowEmpty = false) =>
+        _observations.TryGetValue(path, out var observation) && (allowEmpty || observation.Snapshot.Length > 0) &&
         now - observation.SinceUtc >= TimeSpan.FromSeconds(seconds) &&
         now - observation.Snapshot.ModifiedUtc >= TimeSpan.FromSeconds(seconds) &&
         observation.Snapshot == ReadSnapshot(path);
+
+    private static string ContentFolder(MediaIdentity identity, string destination) => identity.IsSeries
+        ? Path.GetDirectoryName(Path.GetDirectoryName(destination))!
+        : Path.GetDirectoryName(destination)!;
+
+    private async Task FinishReleaseFoldersAsync(string incoming, string shows, string movies, OrganizerSettings settings,
+        Dictionary<string, Receipt> receipts, string receiptsPath, DateTime now,
+        Action<string, string?, string, string> record, CancellationToken cancellationToken)
+    {
+        var enumeration = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = false, AttributesToSkip = FileAttributes.ReparsePoint };
+        // Receipts survive restarts, including a failure after the final video was
+        // moved but before its release attachments were transferred.
+        var anchors = new List<(string Unit, string Content)>();
+        foreach (var receipt in receipts.Values.ToArray())
+        {
+            if (!Within(receipt.Source, incoming) || !VideoExtensions.Contains(Path.GetExtension(receipt.Source))) continue;
+            var unit = DownloadUnit(incoming, receipt.Source);
+            if (unit == incoming || !Directory.Exists(unit)) continue;
+            var identity = ReleaseParser.Parse(Path.GetRelativePath(incoming, receipt.Source));
+            if (identity is null) continue;
+            var expected = Path.Combine(identity.IsSeries ? shows : movies, identity.RelativeDestination(Path.GetExtension(receipt.Source), settings.IncludeSeriesYear, includeCategory: false));
+            if (!expected.Equals(receipt.Destination, PathComparison) || !File.Exists(expected)) continue;
+            if (ReadSnapshot(expected) != new Snapshot(receipt.DestinationLength, receipt.DestinationModifiedUtc)) continue;
+            anchors.Add((unit, ContentFolder(identity, expected)));
+        }
+
+        foreach (var release in anchors.GroupBy(a => a.Unit, PathComparer))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var unit = release.Key;
+            try
+            {
+                EnsureNoLinks(unit);
+                var targets = release.Select(a => a.Content).Distinct(PathComparer).ToArray();
+                if (targets.Length != 1)
+                {
+                    record(unit, null, "Waiting", "Release contains multiple titles; keeping remaining files because a single destination is ambiguous.");
+                    continue;
+                }
+                var remaining = Directory.GetFiles(unit, "*", enumeration);
+                if (settings.CompletionMarker.Trim().Length > 0 && !File.Exists(Path.Combine(unit, settings.CompletionMarker.Trim())))
+                { record(unit, null, "Waiting", "Completion marker missing; keeping the release folder and attachments."); continue; }
+                if (remaining.Any(IsPartial)) { record(unit, null, "Waiting", "Release still has partial-download files; keeping its folder."); continue; }
+                // Unknown main videos stay for review. Known samples/extras are
+                // preserved with the other release files, not exposed as movies.
+                if (remaining.Any(f => VideoExtensions.Contains(Path.GetExtension(f)) && !IsReleaseExtraVideo(Path.GetRelativePath(unit, f))))
+                { record(unit, null, "Waiting", "Release still has unimported video files; keeping its folder and attachments."); continue; }
+                if (remaining.Any(f => !IsStable(f, now, settings.StableSeconds, allowEmpty: true)))
+                { record(unit, null, "Waiting", "Waiting for the remaining release files to stop changing before moving them."); continue; }
+
+                var archiveRoot = Path.Combine(targets[0], ".download-extras", ReleaseParser.SafeName(Path.GetFileName(unit)));
+                var transfers = remaining.Select(source => (Source: source, Destination: Path.Combine(archiveRoot, Path.GetRelativePath(unit, source)))).ToArray();
+                foreach (var pair in transfers)
+                {
+                    EnsureNoLinks(pair.Source);
+                    EnsureNoLinks(pair.Destination);
+                    if (!Within(pair.Destination, archiveRoot)) throw new IOException("Release attachment escapes its destination.");
+                    if (File.Exists(pair.Destination) && !HasReceipt(pair.Source, pair.Destination, receipts)) throw new IOException($"Release attachment already exists; never overwrite: {pair.Destination}");
+                }
+                if (transfers.Length > 0)
+                {
+                    // Exclude the attachment tree, including samples, from scans.
+                    var ignore = Path.Combine(targets[0], ".download-extras", ".ignore");
+                    EnsureNoLinks(ignore);
+                    Directory.CreateDirectory(Path.GetDirectoryName(ignore)!);
+                    if (File.Exists(ignore))
+                    {
+                        if (new FileInfo(ignore).Length != 0) throw new IOException("Release attachment .ignore file is not empty; keeping sources for review.");
+                    }
+                    else
+                    {
+                        using var ignoreStream = new FileStream(ignore, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+                        ignoreStream.Flush(flushToDisk: true);
+                    }
+                }
+                foreach (var pair in transfers)
+                {
+                    if (HasReceipt(pair.Source, pair.Destination, receipts)) continue;
+                    var receipt = await PublishAsync(pair.Source, pair.Destination, _observations[pair.Source].Snapshot, cancellationToken).ConfigureAwait(false);
+                    receipts[ReceiptKey(pair.Source, pair.Destination)] = receipt;
+                    await WriteJsonAsync(receiptsPath, receipts, cancellationToken).ConfigureAwait(false);
+                }
+                if (transfers.Any(p => !HasReceipt(p.Source, p.Destination, receipts))) throw new IOException("Release attachment changed after transfer; keeping source files.");
+                foreach (var pair in transfers)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    EnsureNoLinks(pair.Source);
+                    if (!HasReceipt(pair.Source, pair.Destination, receipts)) throw new IOException("Release attachment changed; keeping source file.");
+                    File.Delete(pair.Source);
+                    _observations.Remove(pair.Source);
+                }
+                // No recursive deletion: links, locked files, or newly arriving
+                // files keep their directory in place. Never remove the inbox.
+                foreach (var directory in Directory.GetDirectories(unit, "*", enumeration).OrderByDescending(d => d.Length).Append(unit))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (directory == incoming || !Within(directory, unit)) throw new IOException("Refusing to remove a directory outside this release.");
+                    EnsureNoLinks(directory);
+                    if (!Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory, recursive: false);
+                }
+                record(unit, archiveRoot, Directory.Exists(unit) ? "Waiting" : "Cleaned",
+                    Directory.Exists(unit) ? "Preserved release files; source folder still contains links or newly arriving files and was kept." : $"Preserved {transfers.Length} remaining release file(s) and removed empty source folders.");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            { record(unit, null, "Error", "Release folder cleanup: " + ex.Message); }
+        }
+    }
+
+    private static bool IsReleaseExtraVideo(string relativePath)
+    {
+        var parts = relativePath.Replace('\\', '/').Split('/');
+        return parts.Any(p => p.StartsWith('.') || p.StartsWith('@') || p.StartsWith('_') ||
+                new[] { "extras", "samples", "sample", "trailers", "featurettes", "behind the scenes", "deleted scenes" }.Contains(p, StringComparer.OrdinalIgnoreCase)) ||
+            System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileNameWithoutExtension(relativePath), @"(?:^|[ ._-])(?:sample|trailer)(?:$|[ ._-])", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
 
     private static bool HasReceipt(string source, string destination, Dictionary<string, Receipt> receipts)
     {

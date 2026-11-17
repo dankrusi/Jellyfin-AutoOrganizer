@@ -25,6 +25,8 @@ public sealed class ReleaseParserTests
     [InlineData("1917.2019.1080p.mkv", "Movies/1917 (2019)/1917 (2019).mkv")]
     [InlineData("2001.A.Space.Odyssey.1968.1080p.mkv", "Movies/2001 A Space Odyssey (1968)/2001 A Space Odyssey (1968).mkv")]
     [InlineData("Blade.Runner.2049.2017.1080p.mkv", "Movies/Blade Runner 2049 (2017)/Blade Runner 2049 (2017).mkv")]
+    [InlineData("www.UIndex.org    -    Sirat (2025) 1080p BluRay 5.1-WORLD/movie.mkv", "Movies/Sirat (2025)/Sirat (2025).mkv")]
+    [InlineData("www.UIndex.org - Sirat.2025.1080p.mkv", "Movies/Sirat (2025)/Sirat (2025).mkv")]
     [InlineData("Dune (2021) [1080p] [BluRay] [YTS.MX]/Dune.2021.1080p.BluRay.x264-YTS.MX.mp4", "Movies/Dune (2021)/Dune (2021).mp4")]
     [InlineData("The.Matrix.1999.1080p.BluRay.x265-GROUP/movie.mkv", "Movies/The Matrix (1999)/The Matrix (1999).mkv")]
     public void TorrentNamesProduceJellyfinPaths(string source, string expected)

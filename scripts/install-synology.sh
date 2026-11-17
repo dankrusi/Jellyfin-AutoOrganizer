@@ -1,5 +1,5 @@
 #!/bin/sh
-# Usage: sh install-synology.sh /path/to/extracted/AutoOrganizer_1.0.1 /path/to/jellyfin/plugins
+# Usage: sh install-synology.sh /path/to/extracted/AutoOrganizer_1.0.2 /path/to/jellyfin/plugins
 # Stop Jellyfin in Container Manager before running. This script does not restart services.
 set -eu
 if [ "$#" -ne 2 ]; then

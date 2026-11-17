@@ -15,6 +15,6 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public override Guid Id => Guid.Parse("684d73d5-e50e-4e59-b643-d9d288531cce");
     public IEnumerable<PluginPageInfo> GetPages() =>
     [
-        new() { Name = "AutoOrganizer", EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html" }
+        new() { Name = "AutoOrganizer-" + GetType().Assembly.GetName().Version, EmbeddedResourcePath = GetType().Namespace + ".Configuration.configPage.html" }
     ];
 }

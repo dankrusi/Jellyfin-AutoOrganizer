@@ -56,8 +56,8 @@ Releases include a `-catalog.zip` whose DLLs are at the ZIP root for Jellyfin's 
 No compilation is needed on the NAS. Use the ZIP in `artifacts/`, or a ZIP from the repository's Actions artifacts after running CI.
 
 1. **Stop Jellyfin** in Container Manager.
-2. Extract `AutoOrganizer-1.0.1-jellyfin-10.11.5.zip` on your computer or with File Station. It contains an `AutoOrganizer_1.0.1` folder with **both** DLLs.
-3. Copy that whole folder into Jellyfin's persistent **plugins directory**. For the official `jellyfin/jellyfin` image with host `/volume1/docker/jellyfin/config` mapped to container `/config`, this is normally `/volume1/docker/jellyfin/config/plugins/AutoOrganizer_1.0.1/`. Locate the actual directory in your deployment; third-party packages/images can differ. Create `plugins` if necessary. Ensure Jellyfin's user can read both DLLs.
+2. Extract `AutoOrganizer-1.0.2-jellyfin-10.11.5.zip` on your computer or with File Station. It contains an `AutoOrganizer_1.0.2` folder with **both** DLLs.
+3. Copy that whole folder into Jellyfin's persistent **plugins directory**. For the official `jellyfin/jellyfin` image with host `/volume1/docker/jellyfin/config` mapped to container `/config`, this is normally `/volume1/docker/jellyfin/config/plugins/AutoOrganizer_1.0.2/`. Locate the actual directory in your deployment; third-party packages/images can differ. Create `plugins` if necessary. Ensure Jellyfin's user can read both DLLs.
 4. Map your completed downloads and media library into the Jellyfin container, if not already mapped. Example:
 
    | Synology host folder | Container folder | Access |
@@ -76,7 +76,7 @@ No compilation is needed on the NAS. Use the ZIP in `artifacts/`, or a ZIP from 
 If you prefer SSH after extracting the archive, the optional installer copies the two DLLs into an existing plugins directory:
 
 ```sh
-sh scripts/install-synology.sh /volume1/downloads/AutoOrganizer_1.0.1 /volume1/docker/jellyfin/config/plugins
+sh scripts/install-synology.sh /volume1/downloads/AutoOrganizer_1.0.2 /volume1/docker/jellyfin/config/plugins
 ```
 
 Stop Jellyfin first and start it afterwards. For updates, move the old plugin folder **outside** the plugins directory before copying a replacement. Keep only one Auto Organizer installation. To uninstall, stop Jellyfin, remove its plugin folder, and restart. Organized media is unaffected.
@@ -99,12 +99,18 @@ For stricter gating, set **Completion marker** to `.completed` and have the down
 
 Copy mode preserves torrent filenames and folder locations but uses additional disk space. Move mode also copies to a temporary file at the destination before publishing, so it works across mounted volumes, but requires space for the destination copy. No hardlink mode is included.
 
+### Moving complete release folders
+
+Move mode organizes recognized videos and matching subtitles/audio first. Once a top-level release folder has finished importing into a single movie or series, remaining files are preserved under `<organized title>/.download-extras/<original release folder>/`, keeping their original subfolder structure. This includes torrent notes, images, hidden/empty files, and recognized samples/extras. An empty `.ignore` file excludes the attachment tree from Jellyfin scans. After successful transfers, empty source subfolders and the release folder are removed; the incoming root is never removed. Copy mode leaves the original release untouched.
+
+This also works between NAS volumes and can resume attachment transfers from saved import receipts after a restart. Unknown main videos, multiple destination titles within one release, partial/changing files, conflicts, symbolic links, locked files, or missing write/delete permission keep the source folder for review. Files are not discarded to force cleanup. Unmatched subtitles are preserved with attachments; automatic subtitles still require the video's matching filename stem as described below. Keep Move disabled for torrents you are still seeding. Torrent-index website prefixes followed by a separator are stripped from inferred media titles.
+
 ## Supported names and scope
 
 - Episodes: `Show.Name.S01E02`, `Show Name 1x02`, contiguous `S01E01E02` / `S01E01-E02` / `S01E01-02`, and `1x01-1x02` ranges. Episode-only `S01E01` filenames inherit the title from the enclosing release folder. Leading `01`, `E01`, or `Episode 01` filenames are supported inside an explicit `Season 01` or `S01` directory.
 - Movies: a title and four-digit year in the filename or enclosing release folder, such as `Movie.Title.2024.1080p.BluRay.x265-GROUP/movie.mkv`. Yearless movies are skipped because guessing is unreliable. Titles are inferred offline, without correcting aliases against TMDb/TVDb.
 - Video extensions: MKV, MP4, AVI, M4V, MOV, WMV, TS, M2TS, MPG, MPEG, WEBM. Music organization, RAR/ZIP extraction, disc folder structures, absolute-numbered anime, date-numbered episodes, and multipart movie merging are outside this version's scope.
-- Matching subtitles and external audio in the **same folder** follow the video and retain suffixes such as `.en.forced.srt`. Supported: SRT, ASS, SSA, SUB/IDX, VTT, SUP, AAC, AC3, EAC3, DTS, MKA, FLAC. Separate `Subs` trees, artwork, and NFO files are left untouched. Late subtitles are imported on later scans in Copy mode; add them before import when using Move mode.
+- Matching subtitles and external audio in the **same folder** follow the video and retain suffixes such as `.en.forced.srt`. Supported: SRT, ASS, SSA, SUB/IDX, VTT, SUP, AAC, AC3, EAC3, DTS, MKA, FLAC. Separate `Subs` trees, artwork, NFO files and other attachments are preserved under `.download-extras` when a Move release completes; Copy leaves these originals untouched. Late matching subtitles are imported on later scans in Copy mode; add them before import when using Move mode.
 - Unknown or ambiguous names, samples, trailers, extras, hidden files, Synology metadata directories, and symbolic links/reparse points are skipped. Configured roots and existing destination ancestors must not be symbolic links.
 - Existing destinations are **never overwritten**. Alternate encodes of the same movie/episode are reported as conflicts for manual review. Renaming removes release quality/group labels from the destination filename. It does not transcode, split, or modify the media content.
 
@@ -119,7 +125,7 @@ The state directory is `<Jellyfin data directory>/autoorganizer/`:
 - `receipts.json`: durable source/destination size/timestamp receipts, preventing repeated copies across restarts. Keep this file. Changes to copied sources or destinations become conflicts; files are not compared by content hash. The ledger retains import history and may grow over time.
 - `last-run.json`: latest scan summary and up to 500 file decisions; plugin logs also contain previews, imports, skips and errors. Waiting messages are at debug level.
 
-If a crash occurs after publishing media but before saving its receipt, the existing destination is treated as a conflict, preserving the source for manual review. A corrupt receipt ledger fails the scan instead of guessing. Do not delete the ledger to resolve a conflict; review the source/destination pair first. Empty release directories and unrelated source files are retained.
+If a crash occurs after publishing media but before saving its receipt, the existing destination is treated as a conflict, preserving the source for manual review. A corrupt receipt ledger fails the scan instead of guessing. Do not delete the ledger to resolve a conflict; review the source/destination pair first. Release cleanup removes only verified empty directories without recursive deletion, so new files and links keep their folder in place.
 
 ## Build and verify
 
@@ -132,7 +138,7 @@ node --test tests/config-page.test.cjs
 pwsh -File scripts/package.ps1
 ```
 
-The package includes only this plugin's two DLLs, its README, and license, not Jellyfin server assemblies. `scripts/package.ps1` creates a ZIP and SHA-256 checksum in `artifacts/`. CI builds and tests on Linux and Windows and uploads the ZIP. Build against a different **10.11.x** patch version when required:
+The package includes only this plugin's two DLLs, its README, and license, not Jellyfin server assemblies. `scripts/package.ps1` creates a ZIP and SHA-256 checksum in `artifacts/`. Before publication, `tools/PackageVerifier` loads both packaged assemblies to check their versions and compares the embedded settings resource byte-for-byte with release source, including library selectors and folder-browser controls. CI builds and tests on Linux and Windows and uploads the ZIP. Build against a different **10.11.x** patch version when required:
 
 ```powershell
 pwsh -File scripts/package.ps1 -JellyfinVersion 10.11.5
@@ -140,9 +146,11 @@ pwsh -File scripts/package.ps1 -JellyfinVersion 10.11.5
 
 That parameter changes the Jellyfin NuGet references. A different Jellyfin major/minor release may also require code or target-framework changes. Do not assume compatibility from a successful DLL copy.
 
-Tests cover torrent release parsing (including multi-season packs), movies, numeric titles, subtitle naming, copy/move, repeat imports after restart, existing-file conflicts, incomplete files, completion markers, stability windows, cancellation, destination overrides, path overlap, and corrupt state. The configuration tests cover library discovery/filtering, selected-path persistence, folder browsing/navigation, cancellation, stale responses, error handling, and upgrades from shared-root settings. The Node tests use the built-in test runner and require no npm dependencies (Node 24 is used in CI). Two symlink tests run on Unix and are explicitly skipped on Windows, where creating symlinks requires additional privileges. No NAS is required to run the tests.
+Tests cover torrent release parsing (including multi-season packs), movies, numeric titles, subtitle naming, copy/move, complete-release preservation and cleanup, changing attachments, recovery after restart, existing-file conflicts, incomplete files, completion markers, stability windows, cancellation, destination overrides, path overlap, and corrupt state. The configuration tests cover library discovery/filtering, selected-path persistence, folder browsing/navigation, cancellation, stale responses, error handling, and upgrades from shared-root settings. The Node tests use the built-in test runner and require no npm dependencies (Node 24 is used in CI). Three symlink tests run on Unix and are explicitly skipped on Windows, where creating symlinks requires additional privileges. No NAS is required to run the tests.
 
 Licensed under GPL-3.0, consistent with the Jellyfin plugin template. See [LICENSE](LICENSE).
+
+If an upgrade still shows an older settings page, restart the Jellyfin container and reopen the plugin from Dashboard → Plugins instead of an old browser tab. Refresh the page or try a private window. The settings heading shows its build version, and settings-page URLs are versioned from 1.0.2 onward to avoid reusing the old page URL.
 
 ## Publishing updates
 

@@ -1,6 +1,6 @@
 param(
     [string]$JellyfinVersion = '10.11.5',
-    [string]$Version = '1.0.1',
+    [string]$Version = '1.0.2',
     [switch]$Catalog
 )
 $ErrorActionPreference = 'Stop'
@@ -38,6 +38,8 @@ try {
         }
     } finally { $zip.Dispose() }
 } finally { $archiveStream.Dispose() }
+dotnet run --project (Join-Path $repoRoot 'tools/PackageVerifier/PackageVerifier.csproj') --configuration Release -- $archive $Version (Join-Path $repoRoot 'src/Jellyfin.Plugin.AutoOrganizer/Configuration/configPage.html')
+if ($LASTEXITCODE -ne 0) { throw 'Package verification failed.' }
 $checksum = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText("$archive.sha256", "$checksum  $([IO.Path]::GetFileName($archive))`n", [Text.UTF8Encoding]::new($false))
 Write-Host "Created $archive"

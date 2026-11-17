@@ -94,6 +94,9 @@ public static class ReleaseParser
 
     private static string CleanTitle(string value, bool stripYear = true)
     {
+        // Torrent release names often begin with an index site's advertisement.
+        // Require a separator so legitimate titles containing a domain are retained.
+        value = Rx(@"^\s*(?:https?://)?(?:www\.)[a-z0-9.-]+\.[a-z]{2,}(?:\s+[-–—]\s*|\s{2,})").Replace(value, "");
         value = Regex.Replace(value, @"^(?:\[[^\]]+\]\s*)+", "");
         value = value.Replace('.', ' ').Replace('_', ' ');
         var year = Year.Matches(value).FirstOrDefault(m => m.Index > 0);
