@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.2.0",
+        "changelog": "Move mode now preserves remaining release files and removes empty source folders. Strip torrent-site prefixes from titles, add versioned settings URLs, and verify packaged DLL versions and embedded settings against release source.",
+        "targetAbi": "10.11.5.0",
+        "sourceUrl": "https://github.com/dankrusi/Jellyfin-AutoOrganizer/releases/download/v1.0.2/AutoOrganizer-1.0.2-jellyfin-10.11.5-catalog.zip",
+        "checksum": "c75b03d97f603f47aeec64f9c9f7aef2",
+        "timestamp": "2026-11-17T16:20:57Z"
+      },
+      {
         "version": "1.0.1.0",
         "changelog": "Add existing Jellyfin library selectors, separate Movies and Shows destinations, a server folder browser, path suggestions, and detailed setup help.",
         "targetAbi": "10.11.5.0",
