@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Auto Organizer</title></head>
+<body>
+<div id="AutoOrganizerPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div data-role="content"><div class="content-primary">
+        <h2>Auto Organizer</h2>
+        <p>Import movie and TV downloads into Movies and Shows folders. Review previews in Dashboard → Logs before turning preview off.</p>
+        <form id="AutoOrganizerForm">
+            <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" id="Enabled" type="checkbox"><span>Enable folder monitoring</span></label></div>
+            <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" id="DryRun" type="checkbox"><span>Preview only (leave enabled for first setup)</span></label></div>
+            <div class="inputContainer"><label class="inputLabel" for="IncomingPath">Incoming folder</label><input is="emby-input" id="IncomingPath" placeholder="/downloads/completed" required><div class="fieldDescription">Absolute path inside the Jellyfin container. Use the torrent client's completed-download folder.</div></div>
+            <div class="inputContainer"><label class="inputLabel" for="LibraryPath">Library root</label><input is="emby-input" id="LibraryPath" placeholder="/media" required><div class="fieldDescription">Creates /media/Shows and /media/Movies. Must be separate from incoming.</div></div>
+            <div class="selectContainer"><label class="selectLabel" for="Mode">Import mode</label><select is="emby-select" id="Mode"><option value="Copy">Copy — keep downloads for seeding</option><option value="Move">Move — remove source files after import</option></select><div class="fieldDescription">Copy uses additional disk space. Move does not remove unrelated files or folders.</div></div>
+            <div class="inputContainer"><label class="inputLabel" for="StableSeconds">Wait for unchanged files (seconds)</label><input is="emby-input" id="StableSeconds" type="number" min="1" max="86400" required><div class="fieldDescription">Default 300 seconds, measured across polls. Stability alone cannot prove a paused torrent is complete.</div></div>
+            <div class="inputContainer"><label class="inputLabel" for="CompletionMarker">Optional completion marker filename</label><input is="emby-input" id="CompletionMarker" placeholder=".completed"><div class="fieldDescription">If set, a top-level download folder must contain this file. Have your downloader create it only after completion. Loose incoming files are skipped in this mode.</div></div>
+            <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" id="IncludeSeriesYear" type="checkbox"><span>Include year in series folder names when available</span></label></div>
+            <p>Runs every minute by default. Change the interval or run manually in Dashboard → Scheduled Tasks → Auto Organizer. Unknown names and existing destinations are left for review. Enable real-time monitoring on your Movies and Shows libraries, or schedule library scans.</p>
+            <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
+        </form>
+    </div></div>
+    <script>
+    (function () {
+        'use strict';
+        var id = '684d73d5-e50e-4e59-b643-d9d288531cce';
+        var page = document.querySelector('#AutoOrganizerPage');
+        var bools = ['Enabled', 'DryRun', 'IncludeSeriesYear'];
+        var strings = ['IncomingPath', 'LibraryPath', 'CompletionMarker'];
+        var field = function (name) { return page.querySelector('#' + name); };
+        function fail(error) { Dashboard.alert(error.message || 'Could not load or save settings.'); }
+        page.addEventListener('pageshow', function () {
+            Dashboard.showLoadingMsg();
+            ApiClient.getPluginConfiguration(id).then(function (config) {
+                bools.forEach(function (name) { field(name).checked = config[name]; });
+                strings.forEach(function (name) { field(name).value = config[name] || ''; });
+                field('StableSeconds').value = config.StableSeconds;
+                field('Mode').value = config.Mode === 1 ? 'Move' : (config.Mode === 0 ? 'Copy' : config.Mode);
+            }).catch(fail).finally(function () { Dashboard.hideLoadingMsg(); });
+        });
+        page.querySelector('form').addEventListener('submit', function (event) {
+            event.preventDefault();
+            Dashboard.showLoadingMsg();
+            ApiClient.getPluginConfiguration(id).then(function (config) {
+                bools.forEach(function (name) { config[name] = field(name).checked; });
+                strings.forEach(function (name) { config[name] = field(name).value.trim(); });
+                config.Mode = field('Mode').value;
+                config.StableSeconds = Number(field('StableSeconds').value);
+                return ApiClient.updatePluginConfiguration(id, config);
+            }).then(function (result) { Dashboard.processPluginConfigurationUpdateResult(result); })
+                .catch(fail).finally(function () { Dashboard.hideLoadingMsg(); });
+        });
+    }());
+    </script>
+</div>
+</body>
+</html>

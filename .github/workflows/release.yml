@@ -1,0 +1,77 @@
+name: Publish Jellyfin repository
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag, e.g. v1.0.0'
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: jellyfin-repository-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Set release version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v(\d+\.\d+\.\d+)$') { throw 'Expected tag vMAJOR.MINOR.PATCH.' }
+          "PLUGIN_VERSION=$($Matches[1])" >> $env:GITHUB_ENV
+          "JELLYFIN_VERSION=10.11.5" >> $env:GITHUB_ENV
+      - run: dotnet test Jellyfin.AutoOrganizer.sln -c Release
+      - name: Build install packages
+        shell: pwsh
+        run: |
+          ./scripts/package.ps1 -Version $env:PLUGIN_VERSION -JellyfinVersion $env:JELLYFIN_VERSION
+          ./scripts/package.ps1 -Version $env:PLUGIN_VERSION -JellyfinVersion $env:JELLYFIN_VERSION -Catalog
+      - name: Create draft release and upload packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > /tmp/autoorganizer-release-state; then
+            if [ "$(cat /tmp/autoorganizer-release-state)" != "true" ]; then
+              echo "Release is already published; refusing to replace immutable package assets."
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Auto Organizer $PLUGIN_VERSION" --notes "Movie and TV download organization for Jellyfin 10.11.5. Install from the repository URL in the README; restart Jellyfin and configure folders. Preview mode is enabled by default."
+          fi
+          gh release upload "$RELEASE_TAG" artifacts/*.zip artifacts/*.sha256 --clobber
+      - name: Update catalog on current default branch
+        shell: pwsh
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git fetch origin $env:DEFAULT_BRANCH
+          if ($LASTEXITCODE -ne 0) { throw 'Fetch failed.' }
+          git checkout -B catalog-update "origin/$env:DEFAULT_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw 'Checkout failed.' }
+          ./scripts/update-manifest.ps1 -ArchivePath "artifacts/AutoOrganizer-$env:PLUGIN_VERSION-jellyfin-$env:JELLYFIN_VERSION-catalog.zip" -Version $env:PLUGIN_VERSION -JellyfinVersion $env:JELLYFIN_VERSION -Repository $env:GITHUB_REPOSITORY
+      - name: Publish release then catalog
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          gh release edit "$RELEASE_TAG" --draft=false
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add manifest.json
+          git commit -m "Publish Auto Organizer $PLUGIN_VERSION catalog"
+          git push origin "HEAD:$DEFAULT_BRANCH"
